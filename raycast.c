@@ -19,6 +19,9 @@ double plane_intersection(V3 Rd, V3 Ro, Object obj);
 double* idiff(Object obj, Object light, double* intersection);
 double* ispec(Object obj, Object light, double* intersection);
 double clamp(double v);
+double* reflection_rec(Object obj, V3 intersection, V3 Rd, int level);
+double* reflection_ray(Object obj, V3 Rd);
+
 
 int main (int argc, char *argv[]) {
   //checking for the right amout of arguments
@@ -211,6 +214,9 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
       y = (intersection_point[1] - obj.position[1])/obj.radius;
       z = (intersection_point[2] - obj.position[2])/obj.radius;
       v3_assign(N, x, y, z);
+      closest_obj.normal[0] = N[0];
+      closest_obj.normal[1] = N[1];
+      closest_obj.normal[2] = N[2];
     }
 
     //Getting Normal for plane
@@ -221,7 +227,7 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
     //Calculating epsilone value
     v3_assign(E, N[0]/2, N[1]/2, N[2]/2);
     
-    for (int i = 0; i < light_count; i++){
+    for (int i = 0; i < light_count; i++){// Going through all of the lights
       Object l = light_array[i];
       double dl = v3_distance(l.position, intersection_point);
       closest_shadow_object.is_null = 1;
@@ -275,6 +281,7 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
 	f_ang = 1.0;
 	
 	v3_sub(Vo, intersection_point, l.position);
+	
 	// Radial attenuation
 	if (dl != INFINITY) {
 	  f_rad = 1 / (l.radial_a2 * dl * dl + l.radial_a1 * dl + l.radial_a0);
@@ -304,6 +311,75 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
   }else{
     return(color_array);
   }
+}
+
+double* reflection_rec(Object obj, V3 intersection, V3 Rd, int level){
+  double* Um = malloc(sizeof(double) * 3);
+  double* black = malloc(sizeof(double) * 3);
+  double t, x_inter, y_inter, z_inter;
+  double closest_t = INFINITY;
+  Object closest_object;
+  double* m_color = malloc(sizeof(double) * 3);
+  double* intersection_point = malloc(sizeof(double) * 3);
+
+  //Making the array that will hold the color black
+  v3_assign(black, 0, 0, 0);
+  
+  if(level > 7)
+    return black;
+  else{
+    Um = reflection_ray(obj, Rd);
+
+    //Checking for intersections and getting t value
+    for(int j = 0; j < obj_count; j++){
+      obj = array[j];
+      
+      if (array[j].pos == closest_obj.pos)
+	continue;
+      
+      if (obj.kind == 2){
+	//sphere intersection
+	t = sphere_intersection(Um, intersection, obj);
+	if (t < closest_t){
+	  closest_t = t;
+	  closest_object = array[j];
+	}
+      }
+      
+      if (obj.kind == 3){
+	//plane intersection
+	t = plane_intersection(Um, intersection, obj);
+	if (t < closest_t){
+	  closest_t = t;
+	  closest_object = array[j];
+	}
+      }
+    }
+    //Checking to see if there was no intersection with an object
+    if(t == INFINITY)
+      color = black;
+    else{ //There was an intersection with another object
+      //Calculating new intersection point
+      x_inter = intersection[0] + Um[0] * closest_t;
+      y_inter = intersection[1] + Um[1] * closest_t;
+      z_inter = intersection[2] + Um[2] * closest_t;
+      v3_assign(intersection_point, x_inter, y_inter, z_inter);
+
+      //Recursive call of reflection
+      m_color = reflection_rec(closest_object, intersection_point, Um, level + 1);
+    }
+  }
+  return m_color;
+}
+
+double* reflection_ray(Object obj, V3 Rd){
+  double dot;
+  double* ray = malloc(sizeof(double) * 3);
+  dot = v3_dot(Rd, obj.normal);
+  dot = dot * 2;
+  v3_scale(ray, obj.normal, dot);
+  v3_sub(ray, Rd, ray);
+  return ray;  
 }
 
 double* idiff(Object obj, Object light, double* intersection){
