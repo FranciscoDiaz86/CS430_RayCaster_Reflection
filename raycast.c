@@ -19,7 +19,6 @@ double plane_intersection(V3 Rd, V3 Ro, Object obj);
 double* idiff(Object obj, double* position, double* color, double* intersection);
 double* ispec(Object obj, double* position, double* color, double* intersection);
 double clamp(double v);
-double* shade(Object obj, V3 Rd, double t, V3 intersection, int obj_count, int light_count, Object *array, Object *light_array, int level);
 double* reflection_ray(Object obj, V3 Rd);
 double* direct_shade(Object obj, double* position, double* color, double* intersection);
 
@@ -178,6 +177,8 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
   }
   
   //Modify here
+  double* black = malloc(sizeof(double) * 3);
+  double* temp_color = malloc(sizeof(double) * 3);
   double* object_color = malloc(sizeof(double) * 3);
   double* reflect_color = malloc(sizeof(double) * 3);
   double* final_color = malloc(sizeof(double) * 3);
@@ -198,6 +199,7 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
   
   v3_assign(object_color, 0, 0, 0);
   v3_assign(color_array, 0, 0, 0);
+  v3_assign(black, 0, 0, 0);
 
   if (closest_t != INFINITY){
     //Getting intersection point
@@ -209,13 +211,14 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
     //Calculating normal for sphere
     if (closest_obj.kind == 2){
       double x, y, z;
-      x = (intersection_point[0] - obj.position[0])/obj.radius;
-      y = (intersection_point[1] - obj.position[1])/obj.radius;
-      z = (intersection_point[2] - obj.position[2])/obj.radius;
+      x = (intersection_point[0] - closest_obj.position[0])/closest_obj.radius;
+      y = (intersection_point[1] - closest_obj.position[1])/closest_obj.radius;
+      z = (intersection_point[2] - closest_obj.position[2])/closest_obj.radius;
       v3_assign(N, x, y, z);
       closest_obj.normal[0] = N[0];
       closest_obj.normal[1] = N[1];
       closest_obj.normal[2] = N[2];
+
     }
 
     //Getting Normal for plane
@@ -223,8 +226,11 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
       N = closest_obj.normal;
     }
     //Calculating epsilone value
-    v3_assign(E, N[0]/2, N[1]/2, N[2]/2);
-    
+    v3_sub(E, N, intersection_point);
+    E[0] = intersection_point[0] + (1/100)*(E[0]);
+    E[1] = intersection_point[1] + (1/100)*(E[1]);
+    E[2] = intersection_point[2] + (1/100)*(E[2]);
+
     for (int i = 0; i < light_count; i++){// Going through all of the lights
       Object l = light_array[i];
       double dl = v3_distance(l.position, intersection_point);
@@ -244,7 +250,7 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
 	
 	if (obj.kind == 2){
 	  //sphere intersection
-	  t = sphere_intersection(Rds, Ros, obj);
+	  t = sphere_intersection(Rds, E, obj);
 	  if (t < t_light){
 	    t_light = t;
 	    closest_shadow_object = array[j];
@@ -253,7 +259,7 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
 	
 	if (obj.kind == 3){
 	  //plane intersection
-	  t = plane_intersection(Rds, Ros, obj);
+	  t = plane_intersection(Rds, E, obj);
 	  if (t < t_light){
 	    t_light = t;
 	    closest_shadow_object = array[j];
@@ -273,7 +279,7 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
 	v3_assign(Rd2, Rd2[0]/mag, Rd2[1]/mag, Rd2[2]/mag);
 	
 	//checking to see if light hits object
-	int hit = raycast_primitive(Rd2, Ro2, closest_obj);
+	int hit = raycast_primitive(Rd2, E, closest_obj);
 	if (!hit) continue;
 	f_rad = 1.0;
 	f_ang = 1.0;
@@ -294,21 +300,31 @@ double* raycast (V3 Rd, V3 Ro, int obj_count, int light_count, Object *array, Ob
 	  f_ang = pow(v3_dot(Vo, l.direction), l.angular_a0);
 	}
 	
-	//Adding the light values
+	if (level > 7)
+	  return (black);
+	else{
+	  double* reflect_ray = malloc(sizeof(double) * 3);
+	  reflect_ray = reflection_ray(closest_obj, Rd);
+	  reflect_color = raycast(reflect_ray, intersection_point, obj_count, light_count, array, light_array, level + 1);
+	}
+	
 	object_color = direct_shade(closest_obj, l.position, l.color, intersection_point);
+	
+	
+	//Getting final color
+	final_color[0] = (closest_obj.reflect * reflect_color[0]) + ((1-closest_obj.reflect) * object_color[0]);
+	final_color[1] = (closest_obj.reflect * reflect_color[1]) + ((1-closest_obj.reflect) * object_color[1]);
+	final_color[2] = (closest_obj.reflect * reflect_color[2]) + ((1-closest_obj.reflect) * object_color[2]);
+      
+	//Adding the light values
 	color_array[0] = f_rad * f_ang;
 	color_array[1] = f_rad * f_ang;
 	color_array[2] = f_rad * f_ang;
       }
     }
-    //Call shade
-    reflect_color = shade(closest_obj, Rd, closest_t, intersection_point, obj_count, light_count,
-		  array, light_array, level);
-    //printf("%f %f %f\n", reflect_color[0], reflect_color[1], reflect_color[2]);
-    //Getting final color
-    final_color[0] = (closest_obj.reflect * reflect_color[0]) + ((1 - closest_obj.reflect)*object_color[0]);
-    final_color[1] = (closest_obj.reflect * reflect_color[1]) + ((1 - closest_obj.reflect)*object_color[1]);
-    final_color[2] = (closest_obj.reflect * reflect_color[2]) + ((1 - closest_obj.reflect)*object_color[2]);
+    // Getting reflection
+   
+
     //Get color to send to pix map
     color_array[0] = (color_array[0] * final_color[0]) + ambient + emittence;
     color_array[1] = (color_array[1] * final_color[1]) + ambient + emittence;
@@ -332,30 +348,6 @@ double* direct_shade(Object obj, double* position, double* color, double* inters
   
   return diff_spec;
 }
-
-double* shade(Object obj, V3 Rd, double t, V3 intersection, int obj_count, int light_count, Object *array, Object *light_array, int level){
-  double* reflect_color = malloc(sizeof(double) * 3);
-  double* reflect_color2 = malloc(sizeof(double) * 3);
-  
-  if (level == 7){
-    double* black = malloc(sizeof(double) * 3);
-    v3_assign(black, 0, 0, 0);
-    return black;
-  }else{
-    double* Um = malloc(sizeof(double) * 3);
-    Um = reflection_ray(obj, Rd);
-    
-    reflect_color = raycast(Um, intersection, obj_count, light_count, array, light_array, level + 1);
-    reflect_color2 = direct_shade(obj, intersection, obj.color, Um);
-    
-    reflect_color[0] = reflect_color[0] + reflect_color2[0];
-    reflect_color[1] = reflect_color[1] + reflect_color2[1];
-    reflect_color[2] = reflect_color[2] + reflect_color2[2];
-    
-    return reflect_color;
-  }
-}
-
 
 
 double* reflection_ray(Object obj, V3 Rd){
@@ -381,15 +373,13 @@ double* idiff(Object obj, double* position, double* color, double* intersection)
     // Creating normal vector
     double* N = malloc(sizeof(double) * 3);
     double x, y, z;
-    x = (intersection[0] - obj.position[0])/obj.radius;
-    y = (intersection[1] - obj.position[1])/obj.radius;
-    z = (intersection[2] - obj.position[2])/obj.radius;
-    v3_assign(N, x, y, z);
+    
+    N = obj.normal;
 
     dot = v3_dot(N, L);
     if (dot > 0) {
       r = obj.diffuse[0] * color[0] * dot;
-      g = obj.diffuse[1] * color[0] * dot;
+      g = obj.diffuse[1] * color[1] * dot;
       b = obj.diffuse[2] * color[2] * dot;
 
       v3_assign(diff_array, r, g, b);
@@ -398,14 +388,13 @@ double* idiff(Object obj, double* position, double* color, double* intersection)
       v3_assign(diff_array, 0, 0, 0);
       return(diff_array);
     }
-    return(diff_array);
   }
  
   if (obj.kind == 3) {
     dot = v3_dot(obj.normal, L);
     if (dot > 0) {
       r = obj.diffuse[0] * color[0] * dot;
-      g = obj.diffuse[1] * color[0] * dot;
+      g = obj.diffuse[1] * color[1] * dot;
       b = obj.diffuse[2] * color[2] * dot;
 
       v3_assign(diff_array, r, g, b);
@@ -428,10 +417,9 @@ double* ispec(Object obj, double* position, double* color, double* intersection)
     //Creating the normal
     double* N = malloc(sizeof(double) * 3);
     double x, y, z;
-    x = (intersection[0] - obj.position[0])/obj.radius;
-    y = (intersection[1] - obj.position[1])/obj.radius;
-    z = (intersection[2] - obj.position[2])/obj.radius;
-    v3_assign(N, x, y, z);
+    N = obj.normal;
+
+    
 
     //Normalizing v
     double mag = sqrt(pow(V[0], 2) + pow(V[1], 2) + pow(V[2], 2));

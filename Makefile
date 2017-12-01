@@ -1,5 +1,5 @@
-all: raycast.c
-	gcc raycast2.c -o raycast -lm
+Ball: raycast.c
+	gcc-5 raycast.c -o raycast -lm
 
 clean:
 	rm -rf raycast *~
